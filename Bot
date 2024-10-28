@@ -1,0 +1,93 @@
+const TelegramBot = require('node-telegram-bot-api');
+const token = '7255056602:AAF9VxJ1sdOlqLEVnVqb2i3OHCkbv2c-fXo';
+const bot = new TelegramBot(token, { polling: true });
+
+let jogadores = {};
+let numerosSorteados = new Set();
+let jogoAtivo = false;
+
+// Função para iniciar o jogo com /newbingo
+bot.onText(/\/newbingo/, (msg) => {
+    if (jogoAtivo) {
+        bot.sendMessage(msg.chat.id, "Um jogo já está em andamento!");
+        return;
+    }
+    jogoAtivo = true;
+    jogadores = {};
+    numerosSorteados.clear();
+    bot.sendMessage(msg.chat.id, "Novo jogo de Bingo iniciado! Use /entrar para participar.");
+});
+
+// Função para entrar no jogo com /entrar
+bot.onText(/\/entrar/, async (msg) => {
+    if (!jogoAtivo) {
+        bot.sendMessage(msg.chat.id, "O jogo ainda não começou. O admin precisa usar /newbingo para começar.");
+        return;
+    }
+
+    const userId = msg.from.id;
+    if (!jogadores[userId]) {
+        const cartela = gerarCartela();
+        jogadores[userId] = { cartela, nome: msg.from.first_name, ganhou: false };
+
+        // Envia a imagem fixa da cartela para o jogador
+        bot.sendPhoto(userId, 'cartela_bingo.jpg', { caption: "Sua cartela de Bingo!" });
+        bot.sendMessage(msg.chat.id, `${msg.from.first_name} entrou no jogo!`);
+    } else {
+        bot.sendMessage(msg.chat.id, "Você já está no jogo!");
+    }
+});
+
+// Função para começar a sortear números com /start
+bot.onText(/\/start/, (msg) => {
+    if (!jogoAtivo) {
+        bot.sendMessage(msg.chat.id, "O jogo de Bingo ainda não foi iniciado. Use /newbingo para começar.");
+        return;
+    }
+
+    sortearNumero(msg.chat.id);
+});
+
+function gerarCartela() {
+    const cartela = { B: [], I: [], N: [], G: [], O: [] };
+    for (let letra of Object.keys(cartela)) {
+        let numeros = new Set();
+        while (numeros.size < 5) {
+            let numero = Math.floor(Math.random() * 15) + 1 + (Object.keys(cartela).indexOf(letra) * 15);
+            numeros.add(numero);
+        }
+        cartela[letra] = Array.from(numeros);
+    }
+    return cartela;
+}
+
+function sortearNumero(chatId) {
+    let numero;
+    do {
+        numero = Math.floor(Math.random() * 75) + 1;
+    } while (numerosSorteados.has(numero));
+    numerosSorteados.add(numero);
+
+    const letra = ["B", "I", "N", "G", "O"][Math.floor((numero - 1) / 15)];
+    bot.sendMessage(chatId, `Número sorteado: ${letra}${numero}`);
+    checarCartelas(letra, numero, chatId);
+}
+
+function checarCartelas(letra, numero, chatId) {
+    for (const [userId, jogador] of Object.entries(jogadores)) {
+        if (jogador.cartela[letra].includes(numero)) {
+            jogador.cartela[letra][jogador.cartela[letra].indexOf(numero)] = 'X';
+            if (verificarVitoria(jogador.cartela)) {
+                jogador.ganhou = true;
+                bot.sendMessage(chatId, `${jogador.nome} completou a cartela! Bingo!`);
+                jogoAtivo = false;
+                break;
+            }
+        }
+    }
+}
+
+// Verifica se toda a cartela está completa (todos os números são "X")
+function verificarVitoria(cartela) {
+    return Object.values(cartela).every(coluna => coluna.every(num => num === "X"));
+}
